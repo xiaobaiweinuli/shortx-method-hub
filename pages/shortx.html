@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShortX 一键注入中心</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' }
+  </script>
+</head>
+<body class="h-full bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-indigo-950 transition-colors">
+
+<div class="min-h-screen flex flex-col">
+  <header class="bg-indigo-600 dark:bg-indigo-800 text-white py-8 shadow-xl">
+    <div class="max-w-5xl mx-auto px-4 flex justify-between items-center">
+      <div>
+        <h1 class="text-4xl font-bold mb-2">ShortX 一键注入中心</h1>
+        <p class="text-xl opacity-90">只显示已验证的高质量方法 · 安全可靠</p>
+      </div>
+      <button id="themeToggle" class="text-3xl p-3 rounded-full bg-white/20 hover:bg-white/30 transition">
+        <span class="dark:hidden">🌙</span>
+        <span class="hidden dark:inline">☀️</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-5xl mx-auto w-full px-4 py-10">
+    <div class="flex flex-col sm:flex-row gap-4 mb-10">
+      <input id="searchInput" type="text" placeholder="搜索方法..." 
+             class="flex-1 px-8 py-5 rounded-full text-lg shadow-lg focus:ring-4 focus:ring-indigo-300"
+             onkeyup="debouncedSearch()">
+      <a href="/api/export" target="_blank"
+         class="bg-green-600 hover:bg-green-700 text-white px-10 py-5 rounded-full text-center shadow-lg font-medium">
+        📥 下载 methods.json
+      </a>
+    </div>
+
+    <div id="methodList" class="grid gap-8 md:grid-cols-2"></div>
+
+    <div id="pagination" class="flex justify-center gap-3 mt-10"></div>
+  </main>
+</div>
+
+<!-- 详情模态 -->
+<div id="detailModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
+  <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-5xl w-full max-h-full overflow-y-auto">
+    <div class="p-8 border-b dark:border-gray-700 flex justify-between items-center">
+      <h2 id="detailTitle" class="text-3xl font-bold"></h2>
+      <button onclick="closeModal()" class="text-4xl">&times;</button>
+    </div>
+    <div class="p-8">
+      <div id="detailTags" class="mb-8"></div>
+      <pre id="detailCode" class="bg-gray-900 text-gray-100 p-8 rounded-2xl overflow-x-auto text-base mb-8"><code></code></pre>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <button id="copyBtn" class="bg-blue-600 hover:bg-blue-700 text-white py-6 rounded-2xl text-xl font-bold">
+          📋 复制代码
+        </button>
+        <button id="injectBtn" class="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white py-6 rounded-2xl text-xl font-bold">
+          🚀 一键注入 ShortX
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let allMethods = [];
+  let currentPage = 1;
+  const PAGE_SIZE = 20;
+
+  // 主题切换（同 index）
+  document.getElementById('themeToggle').onclick = () => {
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  };
+  if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+
+  async function loadMethods() {
+    const res = await fetch('/api/methods');
+    const data = await res.json();
+    allMethods = data.filter(m => m.verified === 1); // 只显示已验证
+    renderPage(1);
+  }
+
+  function renderPage(page) {
+    currentPage = page;
+    const start = (page - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    const pageMethods = allMethods.slice(start, end);
+
+    const container = document.getElementById('methodList');
+    if (pageMethods.length === 0) {
+      container.innerHTML = '<p class="col-span-full text-center text-3xl text-gray-600 dark:text-gray-400">暂无已验证方法</p>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    container.innerHTML = pageMethods.map(m => `
+      <div onclick="showDetail(${m.id})" class="cursor-pointer bg-white/90 dark:bg-gray-800/90 backdrop-blur rounded-3xl shadow-2xl p-10 hover:scale-105 transition-transform">
+        <h2 class="text-3xl font-bold mb-6">${escapeHtml(m.title)}</h2>
+        <div class="mb-8">
+          \( {m.tags ? m.tags.split(',').map(t => `<span class="inline-block bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 px-4 py-2 rounded-full mr-3 text-lg"># \){t}</span>`).join('') : ''}
+        </div>
+        <pre class="bg-gray-900 text-gray-300 p-6 rounded-2xl overflow-x-auto text-sm"><code>${escapeHtml(m.code.slice(0, 400))}...</code></pre>
+      </div>
+    `).join('');
+
+    const totalPages = Math.ceil(allMethods.length / PAGE_SIZE);
+    let paginationHtml = '';
+    for (let i = 1; i <= totalPages; i++) {
+      paginationHtml += `<button onclick="renderPage(${i})" class="px-6 py-3 rounded-full text-lg \( {i === currentPage ? 'bg-indigo-600 text-white' : 'bg-white/80 dark:bg-gray-700 hover:bg-white dark:hover:bg-gray-600'}"> \){i}</button>`;
+    }
+    document.getElementById('pagination').innerHTML = paginationHtml;
+  }
+
+  function debouncedSearch() {
+    clearTimeout(window.searchTimeout);
+    window.searchTimeout = setTimeout(() => {
+      const q = document.getElementById('searchInput').value.trim().toLowerCase();
+      if (!q) return renderPage(1);
+      const filtered = allMethods.filter(m =>
+        m.title.toLowerCase().includes(q) || (m.tags && m.tags.toLowerCase().includes(q))
+      );
+      allMethods = filtered;
+      renderPage(1);
+    }, 300);
+  }
+
+  function showDetail(id) {
+    const method = allMethods.find(m => m.id === id);
+    document.getElementById('detailTitle').textContent = method.title;
+    document.getElementById('detailTags').innerHTML = method.tags
+      ? method.tags.split(',').map(t => `<span class="inline-block bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 px-4 py-2 rounded-full mr-3 text-lg">#${t}</span>`).join('')
+      : '';
+    document.querySelector('#detailCode code').textContent = method.code;
+    document.getElementById('detailModal').classList.remove('hidden');
+
+    document.getElementById('copyBtn').onclick = () => {
+      navigator.clipboard.writeText(method.code).then(() => alert('✅ 已复制！'));
+    };
+
+    document.getElementById('injectBtn').onclick = () => {
+      try {
+        window.location = `shortx://inject?code=${encodeURIComponent(method.code)}`;
+        setTimeout(() => alert('🚀 已尝试注入 ShortX'), 500);
+      } catch (e) {
+        navigator.clipboard.writeText(method.code);
+        alert('📋 已复制，请手动粘贴到 ShortX');
+      }
+    };
+  }
+
+  function closeModal() {
+    document.getElementById('detailModal').classList.add('hidden');
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  loadMethods();
+</script>
+</body>
+</html>

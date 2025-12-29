@@ -1,0 +1,15 @@
+name = "shortx-method-hub"
+main = "src/index.js"
+compatibility_date = "2025-12-29"
+
+[vars]
+ADMIN_KEY = "your_strong_admin_password_here"  # 改成自己的强密码
+WEBHOOK_SECRET = "your_webhook_secret_here"    # Telegram Webhook 验证用
+
+[[d1_databases]]
+binding = "DB"
+database_name = "shortx-methods"
+database_id = "your-d1-id-here"  # 部署后自动生成或手动创建
+
+[placement]
+mode = "smart"
