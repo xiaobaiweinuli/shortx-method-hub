@@ -12,7 +12,12 @@
   </script>
   <style>
     body { font-family: system-ui, sans-serif; }
-    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
   </style>
 </head>
 <body class="h-full bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors">
@@ -60,7 +65,7 @@
   </footer>
 </div>
 
-<!-- 详情模态（点击卡片弹出） -->
+<!-- 详情模态 -->
 <div id="detailModal" class="fixed inset-0 bg-black bg-opacity-70 hidden flex items-center justify-center z-50 p-4">
   <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-full overflow-y-auto">
     <div class="sticky top-0 bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-6 flex justify-between items-center">
@@ -81,12 +86,11 @@
   let allMethods = [];
   let currentPage = 1;
   const PAGE_SIZE = 20;
-  let currentMethod = null;
 
   // 主题切换
   const themeToggle = document.getElementById('themeToggle');
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const savedTheme = localStorage.getItem('theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
   if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
     document.documentElement.classList.add('dark');
@@ -97,18 +101,18 @@
     localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
   };
 
-  // 加载数据
+  // 加载方法
   async function loadMethods() {
     try {
       const res = await fetch('/api/methods');
       allMethods = await res.json();
       renderPage(1);
     } catch (e) {
-      document.getElementById('methodList').innerHTML = '<p class="text-red-500 col-span-full text-center">加载失败</p>';
+      document.getElementById('methodList').innerHTML = '<p class="text-red-500 col-span-full text-center">加载失败，请检查后端是否运行</p>';
     }
   }
 
-  // 渲染当前页
+  // 渲染页面
   function renderPage(page) {
     currentPage = page;
     const start = (page - 1) * PAGE_SIZE;
@@ -123,7 +127,7 @@
     }
 
     container.innerHTML = pageMethods.map(m => `
-      <div onclick="showDetail(${m.id})" class="cursor-pointer bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-xl transition p-6">
+      <div onclick='showDetail(${m.id})' class="cursor-pointer bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-xl transition p-6">
         <div class="flex justify-between items-start mb-3">
           <h3 class="font-semibold text-lg line-clamp-2 flex-1 mr-3">${escapeHtml(m.title)}</h3>
           ${m.verified ? '<span class="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 text-xs px-2 py-1 rounded">已验证</span>' : ''}
@@ -131,24 +135,24 @@
         <div class="text-sm text-gray-600 dark:text-gray-400 mb-4">
           \( {m.tags ? m.tags.split(',').map(t => `<span class="inline-block bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-2 py-1 rounded mr-1 mb-1 text-xs"># \){t}</span>`).join('') : '<span class="text-gray-400">无标签</span>'}
         </div>
-        <pre class="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg overflow-x-auto text-xs"><code>${escapeHtml(m.code.slice(0, 250))}...</code></pre>
+        <pre class="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg overflow-x-auto text-xs"><code>\( {escapeHtml(m.code.slice(0, 250))} \){m.code.length > 250 ? '...' : ''}</code></pre>
       </div>
     `).join('');
 
     renderPagination(Math.ceil(allMethods.length / PAGE_SIZE));
   }
 
-  // 分页按钮
+  // 分页
   function renderPagination(totalPages) {
     const pagination = document.getElementById('pagination');
     let html = '';
     for (let i = 1; i <= totalPages; i++) {
-      html += `<button onclick="renderPage(${i})" class="px-4 py-2 rounded \( {i === currentPage ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600'}"> \){i}</button>`;
+      html += `<button onclick='renderPage(${i})' class="px-4 py-2 rounded \( {i === currentPage ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600'}"> \){i}</button>`;
     }
     pagination.innerHTML = html;
   }
 
-  // 搜索（防抖）
+  // 防抖搜索
   function debouncedSearch() {
     clearTimeout(window.searchTimeout);
     window.searchTimeout = setTimeout(search, 300);
@@ -164,28 +168,27 @@
       m.title.toLowerCase().includes(q) ||
       (m.tags && m.tags.toLowerCase().includes(q))
     );
-    allMethods = filtered; // 临时替换为搜索结果
+    allMethods = filtered;
     renderPage(1);
   }
 
-  // 显示详情模态
-  async function showDetail(id) {
+  // 显示详情
+  function showDetail(id) {
     const method = allMethods.find(m => m.id === id);
     if (!method) return;
 
-    currentMethod = method;
     document.getElementById('detailTitle').textContent = method.title;
     document.getElementById('detailTags').innerHTML = method.tags
       ? method.tags.split(',').map(t => `<span class="inline-block bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 px-3 py-1 rounded-full mr-2">#${t}</span>`).join('')
       : '<span class="text-gray-500">无标签</span>';
 
     document.querySelector('#detailCode code').textContent = method.code;
-    document.getElementById('detailModal').classList.remove('hidden');
 
-    // 复制按钮
     document.getElementById('copyBtn').onclick = () => {
       navigator.clipboard.writeText(method.code).then(() => alert('✅ 已复制完整代码！'));
     };
+
+    document.getElementById('detailModal').classList.remove('hidden');
   }
 
   function closeModal() {
@@ -198,7 +201,9 @@
     return div.innerHTML;
   }
 
+  // 启动
   loadMethods();
 </script>
+
 </body>
 </html>
