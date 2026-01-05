@@ -644,7 +644,6 @@ export default {
     class TelegramService {
       constructor(botToken) {
         this.botToken = botToken;
-        // 注意：搜索状态现在存储在数据库中，不再使用内存Map
       }
 
       // HTML转义函数
@@ -992,7 +991,7 @@ export default {
           const currentMethod = methods[0];
           const keyboard = this.createSearchKeyboard(methods.length, 0, searchId);
           
-          const message = this.formatMethodForTelegram(currentMethod, false);
+          const message = this.formatMethodForTelegram(currentMethod, false, 0, methods.length);
           
           return await this.sendMessage(chatId, message, {
             parse_mode: 'HTML',
@@ -1050,7 +1049,7 @@ export default {
               
               // 更新消息内容
               const newMethod = searchState.results[newIndex];
-              const message = this.formatMethodForTelegram(newMethod, false);
+              const message = this.formatMethodForTelegram(newMethod, false, newIndex, searchState.results.length);
               const keyboard = this.createSearchKeyboard(searchState.results.length, newIndex, searchId);
               
               await this.editMessageText(chatId, messageId, message, {
@@ -1087,7 +1086,7 @@ export default {
         // 逐个发送每个方法，添加延迟避免被限制
         for (let i = 0; i < results.length; i++) {
           const method = results[i];
-          const message = this.formatMethodForTelegram(method, false);
+          const message = this.formatMethodForTelegram(method, false, i, results.length);
           
           // 发送消息
           await this.sendMessage(chatId, message, {
@@ -1200,7 +1199,7 @@ export default {
           const currentMethod = methods[0];
           const keyboard = this.createSearchKeyboard(methods.length, 0, searchId);
           
-          const message = this.formatMethodForTelegram(currentMethod, false);
+          const message = this.formatMethodForTelegram(currentMethod, false, 0, methods.length);
           
           return await this.sendMessage(chatId, message, {
             parse_mode: 'HTML',
@@ -1300,7 +1299,7 @@ ${topTagsText}
         }
       }
 
-      formatMethodForTelegram(method, isRandom = false) {
+      formatMethodForTelegram(method, isRandom = false, currentIndex = null, totalResults = null) {
         const tags = method.tags && method.tags.length > 0 
           ? method.tags.map(tag => `<code>#${this.escapeHtml(tag)}</code>`).join(' ') 
           : '无标签';
@@ -1321,6 +1320,8 @@ ${topTagsText}
         
         if (isRandom) {
           message += `<b>🎲 随机方法</b>\n\n`;
+        } else if (currentIndex !== null && totalResults !== null) {
+          message += `<b>🔍 搜索结果 (${currentIndex + 1}/${totalResults})</b>\n\n`;
         }
         
         message += `<b>${this.escapeHtml(method.title)}</b>${verifiedBadge}\n\n`;
@@ -1674,8 +1675,13 @@ ${topTagsText}
       });
     }
 
-    if (url.pathname === '/init-db' && request.method === 'POST') {
+    // 移除独立的 init-db 端点，将功能集成到前端
+
+    if (url.pathname === '/api/init-db' && request.method === 'POST') {
       if (!DB) return errorResponse('未绑定 D1 数据库', 500);
+      
+      const adminKey = request.headers.get('X-Admin-Key');
+      if (adminKey !== ADMIN_KEY) return errorResponse('需要管理员权限', 403);
       
       try {
         const dbService = new DatabaseService(DB);
@@ -2108,7 +2114,8 @@ function getHTMLPage() {
           showHistoryModal: false,
           botInfo: null,
           botCommands: [],
-          botTab: 'bot-commands'
+          botTab: 'bot-commands',
+          showInitDbConfirm: false
         };
       }
 
@@ -2198,6 +2205,31 @@ function getHTMLPage() {
           }
         } catch (error) {
           console.error('加载Bot信息失败', error);
+        }
+      }
+
+      async initDatabase() {
+        try {
+          const res = await fetch(\`\${this.API_BASE}/api/init-db\`, {
+            method: 'POST',
+            headers: { 'X-Admin-Key': this.ADMIN_KEY }
+          });
+          const data = await res.json();
+          if (data.success) {
+            this.showToast('数据库初始化成功');
+            this.setState({ showInitDbConfirm: false });
+            // 重新加载数据
+            await Promise.all([
+              this.loadMethods(),
+              this.loadStats(),
+              this.loadGroups(),
+              this.loadSystemConfigs()
+            ]);
+          } else {
+            this.showToast(data.error || '初始化失败', true);
+          }
+        } catch (error) {
+          this.showToast('初始化失败: ' + error.message, true);
         }
       }
 
@@ -3256,14 +3288,19 @@ function getHTMLPage() {
         
         return \`
           <div class="space-y-8">
-            <div class="flex justify-between items-center">
+            <div class="flex justify-between items-center flex-wrap gap-4">
               <div>
                 <h2 class="text-3xl font-bold text-gray-800 mb-1">系统设置</h2>
                 <p class="text-gray-600">配置 ShortX API 和其他系统参数</p>
               </div>
-              <button id="save-settings-btn" class="px-6 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl hover:shadow-lg transition flex items-center gap-2">
-                <i class="fas fa-save"></i> 保存所有设置
-              </button>
+              <div class="flex gap-3">
+                <button id="save-settings-btn" class="px-6 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl hover:shadow-lg transition flex items-center gap-2">
+                  <i class="fas fa-save"></i> 保存所有设置
+                </button>
+                <button id="init-db-btn" class="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:shadow-lg transition flex items-center gap-2">
+                  <i class="fas fa-database"></i> 初始化数据库
+                </button>
+              </div>
             </div>
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -3310,6 +3347,49 @@ function getHTMLPage() {
                         </div>
                         <p class="text-sm text-blue-700">此接口无需认证，可直接在 ShortX 应用中使用。</p>
                         <p class="text-sm text-blue-600 mt-2">接口返回格式与 ShortX 应用完全兼容。</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="bg-white rounded-2xl shadow-lg p-6 config-card">
+                <div class="flex items-center gap-3 mb-6">
+                  <div class="p-2 bg-gradient-to-r from-red-100 to-pink-100 rounded-lg">
+                    <i class="fas fa-database text-red-600 text-xl"></i>
+                  </div>
+                  <div>
+                    <h3 class="text-xl font-semibold text-gray-800">数据库管理</h3>
+                    <p class="text-gray-600 text-sm">初始化数据库表结构</p>
+                  </div>
+                </div>
+                
+                <div class="space-y-6">
+                  <div class="bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 rounded-xl p-5">
+                    <div class="flex items-start gap-3">
+                      <i class="fas fa-exclamation-triangle text-red-600 text-xl mt-1"></i>
+                      <div>
+                        <p class="font-semibold text-red-800 mb-2">注意：初始化数据库将执行以下操作</p>
+                        <ul class="text-sm text-red-700 space-y-2">
+                          <li>• 创建或更新所有数据表结构</li>
+                          <li>• 重置系统配置为默认值（但不会删除现有方法）</li>
+                          <li>• 此操作不会删除现有方法数据</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5">
+                    <div class="flex items-start gap-3">
+                      <i class="fas fa-info-circle text-blue-600 text-xl mt-1"></i>
+                      <div>
+                        <p class="font-semibold text-blue-800 mb-2">数据库状态</p>
+                        <ul class="text-sm text-blue-700 space-y-2">
+                          <li>• 总方法数: \${this.state.stats.total || 0}</li>
+                          <li>• 已验证方法: \${this.state.stats.verified || 0}</li>
+                          <li>• 标签种类: \${this.state.stats.tags || 0}</li>
+                          <li>• 群组配置: \${this.state.groups.length}</li>
+                        </ul>
                       </div>
                     </div>
                   </div>
@@ -3402,7 +3482,37 @@ function getHTMLPage() {
           modals += this.renderHistoryModal();
         }
         
+        if (this.state.showInitDbConfirm) {
+          modals += this.renderInitDbModal();
+        }
+        
         return modals;
+      }
+
+      renderInitDbModal() {
+        return \`
+          <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
+              <div class="text-center mb-6">
+                <div class="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                  <i class="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
+                </div>
+                <h3 class="text-2xl font-bold text-gray-800 mb-2">确认初始化数据库</h3>
+                <p class="text-gray-600">确定要初始化数据库吗？这将重置所有系统配置为默认值。</p>
+                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4 text-left">
+                  <p class="text-sm text-yellow-700">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    <strong>注意：</strong>此操作不会删除现有的方法数据，但会重置系统配置。
+                  </p>
+                </div>
+              </div>
+              <div class="flex justify-end gap-4">
+                <button data-close="init-db" class="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition">取消</button>
+                <button id="confirm-init-db-btn" class="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:shadow-lg transition">确认初始化</button>
+              </div>
+            </div>
+          </div>
+        \`;
       }
 
       renderMethodModal() {
@@ -3698,6 +3808,13 @@ function getHTMLPage() {
           });
         }
         
+        const initDbBtn = document.getElementById('init-db-btn');
+        if (initDbBtn) {
+          initDbBtn.addEventListener('click', () => {
+            this.setState({ showInitDbConfirm: true });
+          });
+        }
+        
         const setWebhookBtn = document.getElementById('set-webhook-btn');
         if (setWebhookBtn) {
           setWebhookBtn.addEventListener('click', async () => {
@@ -3859,6 +3976,13 @@ function getHTMLPage() {
           });
         }
         
+        const confirmInitDbBtn = document.getElementById('confirm-init-db-btn');
+        if (confirmInitDbBtn) {
+          confirmInitDbBtn.addEventListener('click', () => {
+            this.initDatabase();
+          });
+        }
+        
         const fetchMessagesBtn = document.getElementById('fetch-messages-btn');
         if (fetchMessagesBtn) {
           fetchMessagesBtn.addEventListener('click', () => {
@@ -3883,6 +4007,9 @@ function getHTMLPage() {
                 break;
               case 'history':
                 this.setState({ showHistoryModal: false });
+                break;
+              case 'init-db':
+                this.setState({ showInitDbConfirm: false });
                 break;
             }
           });
